@@ -1,0 +1,66 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isUser(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isTripMember(tripData) {
+      return isAuthenticated() && (request.auth.uid in tripData.memberIds);
+    }
+
+    function isTripOwner(tripData) {
+      return isAuthenticated() && request.auth.uid == tripData.ownerId;
+    }
+
+    // User Profiles
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isUser(userId);
+      allow delete: if false;
+    }
+
+    // Trips Collection
+    match /trips/{tripId} {
+      allow read: if isTripMember(resource.data);
+      allow create: if isAuthenticated() && request.auth.uid == request.resource.data.ownerId;
+      allow update: if isTripMember(resource.data);
+      allow delete: if isTripOwner(resource.data);
+
+      // Itinerary Subcollection
+      match /itinerary/{itemId} {
+        allow read, write: if isAuthenticated() && 
+          request.auth.uid in get(/databases/$(database)/documents/trips/$(tripId)).data.memberIds;
+      }
+
+      // Expenses Subcollection
+      match /expenses/{expenseId} {
+        allow read, write: if isAuthenticated() && 
+          request.auth.uid in get(/databases/$(database)/documents/trips/$(tripId)).data.memberIds;
+      }
+
+      // Members Subcollection
+      match /members/{memberId} {
+        allow read: if isAuthenticated() && 
+          request.auth.uid in get(/databases/$(database)/documents/trips/$(tripId)).data.memberIds;
+        allow write: if isAuthenticated() && 
+          (request.auth.uid == memberId || request.auth.uid == get(/databases/$(database)/documents/trips/$(tripId)).data.ownerId);
+      }
+    }
+
+    // Invitations Collection
+    match /invitations/{inviteId} {
+      allow read: if true; // Allows link-preview when invited
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated();
+      allow delete: if isAuthenticated() && resource.data.invitedBy.uid == request.auth.uid;
+    }
+  }
+}
